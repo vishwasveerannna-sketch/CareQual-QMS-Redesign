@@ -1,6 +1,8 @@
 .venv/
+**/.venv/
 venv/
 __pycache__/
 *.pyc
 .env
 .secret_key
+**/.secret_key
