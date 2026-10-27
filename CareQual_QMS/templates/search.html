@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, page_head, rid, empty_state %}
+{% block content %}
+{% call page_head('Search results', 'Searches titles, descriptions, owners, references and notes across every module.') %}{% endcall %}
+{% if q|length < 2 %}
+<div class="card">{% call empty_state('search', 'Type at least two characters', 'Use the search box above, or press / to jump to it. Identifiers such as DEF-3 or TC-2 also work.') %}{% endcall %}</div>
+{% elif not result_groups %}
+<div class="card">{% call empty_state('search', 'No records match “' ~ q ~ '”', 'Check the spelling, or try a shorter term or an identifier like DEF-1.') %}{% endcall %}</div>
+{% else %}
+<p class="muted" style="margin-bottom:var(--s-4)">{{ total }} result{{ '' if total == 1 else 's' }} for <strong>“{{ q }}”</strong></p>
+{% for g in result_groups %}
+<section class="card result-group" aria-labelledby="g-{{ g.prefix }}">
+  <div class="card-head"><h2 id="g-{{ g.prefix }}">{{ icon(g.icon) }} {{ g.label }}</h2><a class="link-more" href="{{ url_for(g.endpoint, q=q) }}">Open module{{ icon('chevron-right', 'icon-sm') }}</a></div>
+  {% for r in g.rows %}
+  <a class="result-row" href="{{ url_for(g.endpoint) }}#rec-{{ g.prefix|lower }}-{{ r.id }}"><span class="id">{{ rid(g.prefix, r.id) }}</span><span class="grow" style="flex:1;min-width:0"><strong>{{ r.title }}</strong><span class="cell-sub">{{ r.sub }}</span></span>{{ status(r.status) }}</a>
+  {% endfor %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,144 @@
+{#- Reusable UI components for CareQual QMS. Import with:  {% from "_macros.html" import ... %} -#}
+
+{% macro icon(name, cls='') -%}
+<svg class="icon {{ cls }}" aria-hidden="true" focusable="false"><use href="#i-{{ name }}"/></svg>
+{%- endmacro %}
+
+{#- Status badge. Failed/Blocked/Rejected carry an icon so meaning never relies on colour alone. -#}
+{% macro status(value) -%}
+<span class="badge" data-tone="{{ tone(value) }}">
+{%- if value in ('Failed', 'Fail') %}{{ icon('circle-x') }}
+{%- elif value == 'Blocked' %}{{ icon('ban') }}
+{%- elif value == 'Rejected' %}{{ icon('circle-x') }}{% endif %}{{ value }}</span>
+{%- endmacro %}
+
+{% macro severity(value) -%}
+<span class="badge{% if value == 'Critical' %} badge-solid{% endif %}" data-tone="{{ tone(value) }}">
+{%- if value == 'Critical' %}{{ icon('siren') }}{% endif %}{{ value }}</span>
+{%- endmacro %}
+
+{% macro priority(value) -%}
+{%- set level = {'Urgent': 4, 'High': 3, 'Normal': 2, 'Low': 1}.get(value, 2) -%}
+{%- set pt = {'Urgent': 'danger', 'High': 'orange', 'Normal': 'info', 'Low': 'neutral'}.get(value, 'neutral') -%}
+<span class="pri" data-level="{{ level }}" data-tone="{{ pt }}"><i aria-hidden="true"><b></b><b></b><b></b><b></b></i>{{ value }}</span>
+{%- endmacro %}
+
+{% macro rid(prefix, id) -%}{{ prefix }}-{{ '%03d'|format(id) }}{%- endmacro %}
+
+{% macro page_head(title, lede='') -%}
+<header class="page-head">
+  <div>
+    <nav class="crumbs" aria-label="Breadcrumb">
+      <a href="{{ url_for('overview') }}">Workspace</a>{{ icon('chevron-right') }}<span aria-current="page">{{ title }}</span>
+    </nav>
+    <h1>{{ title }}</h1>
+    {% if lede %}<p class="lede">{{ lede }}</p>{% endif %}
+  </div>
+  <div class="page-actions">{% if caller %}{{ caller() }}{% endif %}</div>
+</header>
+{%- endmacro %}
+
+{% macro callout(tone_name, icon_name) -%}
+<div class="callout" data-tone="{{ tone_name }}" role="note">{{ icon(icon_name) }}<div>{{ caller() }}</div></div>
+{%- endmacro %}
+
+{% macro empty_state(icon_name, title, text, hidden=False, attrs='') -%}
+<div class="empty"{% if hidden %} hidden{% endif %} {{ attrs|safe }}>
+  <span class="empty-icon">{{ icon(icon_name) }}</span>
+  <h3>{{ title }}</h3>
+  <p>{{ text }}</p>
+  {% if caller %}<div>{{ caller() }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- One labelled form control with an inline validation slot. `fid` keeps ids unique per form. -#}
+{% macro field(fid, label, name, type='text', required=False, placeholder='', value='', hint='', options=None, rows=0, full=False, maxlength=None, readonly=False, autofocus=False) -%}
+{%- set id = fid ~ '-' ~ name -%}
+<div class="field{% if full %} full{% endif %}">
+  <label for="{{ id }}">{{ label }}{% if required %}<span class="req" aria-hidden="true">*</span>{% endif %}</label>
+  {% if options %}
+  <select id="{{ id }}" name="{{ name }}"{% if required %} required{% endif %}>
+    {%- for o in options %}<option value="{{ o }}"{% if o == value %} selected{% endif %}>{{ o }}</option>{% endfor -%}
+  </select>
+  {% elif rows %}
+  <textarea id="{{ id }}" name="{{ name }}" rows="{{ rows }}"{% if required %} required{% endif %}{% if maxlength %} maxlength="{{ maxlength }}"{% endif %} placeholder="{{ placeholder }}"{% if hint %} aria-describedby="{{ id }}-hint"{% endif %}>{{ value }}</textarea>
+  {% else %}
+  <input id="{{ id }}" type="{{ type }}" name="{{ name }}" value="{{ value }}" placeholder="{{ placeholder }}"{% if required %} required{% endif %}{% if maxlength %} maxlength="{{ maxlength }}"{% endif %}{% if readonly %} readonly{% endif %}{% if autofocus %} data-autofocus{% endif %}{% if hint %} aria-describedby="{{ id }}-hint"{% endif %} autocomplete="off">
+  {% endif %}
+  {% if hint %}<span class="hint" id="{{ id }}-hint">{{ hint }}</span>{% endif %}
+  <span class="field-error" role="alert">{{ icon('circle-alert') }}<span data-msg></span></span>
+</div>
+{%- endmacro %}
+
+{#- Segmented radio group (decisions, results). -#}
+{% macro segmented(fid, label, name, values, current) -%}
+<div class="field full" role="radiogroup" aria-labelledby="{{ fid }}-{{ name }}-l">
+  <span class="lbl" id="{{ fid }}-{{ name }}-l">{{ label }}</span>
+  <div class="seg">
+    {%- for v in values %}
+    <label><input type="radio" name="{{ name }}" value="{{ v }}"{% if v == current %} checked{% endif %}><span data-tone="{{ tone(v) }}">{{ v }}</span></label>
+    {%- endfor %}
+  </div>
+</div>
+{%- endmacro %}
+
+{#- Right-hand record panel (native <dialog>: focus trap + Esc handled by the browser). -#}
+{% macro drawer(did, kicker, title) -%}
+<dialog class="drawer" id="{{ did }}" aria-labelledby="{{ did }}-t" data-reopen>
+  <div class="modal-wrap">
+    <div class="dialog-head">
+      <div class="drawer-title"><div class="ids">{{ kicker }}</div><h2 id="{{ did }}-t">{{ title }}</h2></div>
+      <button type="button" class="icon-btn" data-dialog-close aria-label="Close panel">{{ icon('x') }}</button>
+    </div>
+    <div class="dialog-body">{{ caller() }}</div>
+  </div>
+</dialog>
+{%- endmacro %}
+
+{% macro modal(mid, title, desc='', autoopen=False) -%}
+<dialog class="modal" id="{{ mid }}" aria-labelledby="{{ mid }}-t"{% if autoopen %} data-autoopen{% endif %}>
+  <div class="modal-wrap">
+    <div class="dialog-head">
+      <div><h2 id="{{ mid }}-t">{{ title }}</h2>{% if desc %}<p>{{ desc }}</p>{% endif %}</div>
+      <button type="button" class="icon-btn" data-dialog-close aria-label="Close dialog">{{ icon('x') }}</button>
+    </div>
+    <div class="dialog-body">{{ caller() }}</div>
+  </div>
+</dialog>
+{%- endmacro %}
+
+{#- Workflow stepper. steps = list of labels; current = label; stopped=True marks the current step as a stop. -#}
+{% macro stepper(steps, current, stopped=False) -%}
+{%- set idx = steps.index(current) if current in steps else -1 -%}
+<ol class="steps" aria-label="Workflow progress">
+  {%- for s in steps %}
+  <li data-state="{{ ('stopped' if stopped else 'current') if loop.index0 == idx else ('done' if loop.index0 < idx else 'todo') }}"{% if loop.index0 == idx %} aria-current="step"{% endif %}>{{ s }}</li>
+  {%- endfor %}
+</ol>
+{%- endmacro %}
+
+{#- Reusable list toolbar. `filters` = list of (field, label, options). -#}
+{% macro toolbar(target, placeholder, filters=[]) -%}
+<div class="toolbar" role="search" data-filter-root="{{ target }}">
+  <div class="field-inline">{{ icon('search') }}
+    <input type="search" data-filter-q placeholder="{{ placeholder }}" aria-label="{{ placeholder }}">
+  </div>
+  {% for f, label, opts in filters %}
+  <select data-filter-field="{{ f }}" aria-label="Filter by {{ label|lower }}">
+    <option value="">{{ label }}: all</option>
+    {% for o in opts %}<option value="{{ o.0 if o is not string else o }}">{{ o.1 if o is not string else o }}</option>{% endfor %}
+  </select>
+  {% endfor %}
+  <button type="button" class="btn btn-ghost btn-sm" data-filter-clear hidden>{{ icon('rotate-ccw') }}Clear</button>
+  <span class="count" data-filter-count aria-live="polite"></span>
+</div>
+{%- endmacro %}
+
+{% macro filter_empty() -%}
+<div class="empty" hidden data-filter-empty>
+  <span class="empty-icon">{{ icon('search') }}</span>
+  <h3>No records match</h3>
+  <p>Try a different search term or clear the filters.</p>
+  <div><button type="button" class="btn" data-filter-reset>{{ icon('rotate-ccw') }}Clear filters</button></div>
+</div>
+{%- endmacro %}

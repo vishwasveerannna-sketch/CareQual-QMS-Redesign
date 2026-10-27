@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, severity, page_head, rid, empty_state %}
+{% block content %}
+{% call page_head('Quality overview', 'Live figures from the QMS database for the hospital software project. Every number links to its source module.') %}
+  <a class="btn" href="{{ url_for('export') }}">{{ icon('download') }}Export defects</a>
+  <a class="btn btn-primary" href="{{ url_for('defects', new=1) }}">{{ icon('plus') }}Record defect</a>
+{% endcall %}
+
+{# ---- release gate: the one thing the whole QMS builds towards ---- #}
+{% set gate_tone = 'success' if rel.ready else ('danger' if (rel.blockers|selectattr('status', 'equalto', 'Fail')|list) else 'warning') %}
+<section class="gate" data-tone="{{ gate_tone }}" aria-labelledby="gate-title">
+  <div class="gate-top">
+    <div class="gate-verdict">
+      <span class="gate-icon">{{ icon('shield-check' if rel.ready else 'shield-alert') }}</span>
+      <div>
+        <h2 id="gate-title">{{ 'Ready for authorized review' if rel.ready else 'Release is not ready' }}</h2>
+        <p>{{ rel.passed }} of {{ rel.checks|length }} release gates passed{% if not rel.ready %} · {{ rel.blockers|length }} mandatory {{ 'gate is' if rel.blockers|length == 1 else 'gates are' }} still open{% endif %}</p>
+      </div>
+    </div>
+    <a class="btn" href="{{ url_for('release') }}">{{ icon('shield-check') }}Open release readiness</a>
+  </div>
+  <ol class="gates" aria-label="Release gates">
+    {% for c in rel.checks %}
+    <li data-tone="{{ tone(c.status) }}">
+      <span class="bar" aria-hidden="true"></span>
+      <span class="nm">{{ c.check_name }}</span>
+      <span class="st">{{ icon('circle-check' if c.status == 'Pass' else ('circle-x' if c.status == 'Fail' else 'clock'), 'icon-sm') }}{{ c.status }}</span>
+    </li>
+    {% else %}
+    <li data-tone="warning"><span class="nm">No release gates are defined yet.</span></li>
+    {% endfor %}
+  </ol>
+  <div class="gate-foot">This panel summarizes gate evidence. A human release authority makes the final decision.</div>
+</section>
+
+{# ---- KPI board ---- #}
+<section class="kpi-board" aria-label="Key quality indicators">
+  <a class="kpi" href="{{ url_for('plans') }}"><span class="k">{{ icon('clipboard-list') }}Quality plans</span><span class="v">{{ s.plans_total }}</span><span class="sub">registered in the QMS</span></a>
+  <a class="kpi" href="{{ url_for('plans', status='Approved') }}"><span class="k">{{ icon('badge-check') }}Approved plans</span><span class="v">{{ s.plans_approved }}<small> / {{ s.plans_total }}</small></span><span class="meter" data-tone="success"><i style="width:{{ s.plans_rate }}%"></i></span></a>
+  <a class="kpi" href="{{ url_for('reviews') }}"><span class="k">{{ icon('file-check') }}Review completion</span><span class="v">{{ s.review_rate }}<small>%</small></span><span class="meter"><i style="width:{{ s.review_rate }}%"></i></span><span class="sub">{{ s.reviews_done }} of {{ s.reviews_total }} reviews decided</span></a>
+  <a class="kpi" href="{{ url_for('documents', status='Approved') }}"><span class="k">{{ icon('files') }}Approved documents</span><span class="v">{{ s.docs_approved }}<small> / {{ s.docs_total }}</small></span><span class="sub">controlled documents</span></a>
+  <a class="kpi" href="{{ url_for('tests') }}"><span class="k">{{ icon('trending-up') }}Test pass rate</span><span class="v">{{ s.test_rate }}<small>%</small></span><span class="meter" data-tone="success"><i style="width:{{ s.test_rate }}%"></i></span><span class="sub">passed ÷ executed</span></a>
+
+  <a class="kpi" href="{{ url_for('tests') }}"><span class="k">{{ icon('flask-conical') }}Total test cases</span><span class="v">{{ s.tests_all }}</span><span class="sub">{{ s.tests_by_result['Not Run'] }} not run yet</span></a>
+  <a class="kpi" href="{{ url_for('tests', result='Passed') }}"><span class="k">{{ icon('circle-check') }}Passed test cases</span><span class="v">{{ s.tests_passed }}<small> / {{ s.tests_total }}</small></span><span class="sub">of executed tests</span></a>
+  <a class="kpi" href="{{ url_for('defects', status='__open') }}"><span class="k">{{ icon('bug') }}Open defects</span><span class="v">{{ s.defects_open }}</span><span class="sub">not yet verified and closed</span></a>
+  <a class="kpi" href="{{ url_for('defects', severity='Critical', status='__open') }}"{% if s.critical_open %} data-alert="true"{% endif %}><span class="k">{{ icon('siren') }}Critical defects</span><span class="v">{{ s.critical_open }}</span><span class="sub">{{ 'block the release' if s.critical_open else 'none outstanding' }}</span></a>
+  <a class="kpi" href="{{ url_for('capa') }}"><span class="k">{{ icon('refresh-cw') }}Open CAPA</span><span class="v">{{ s.capa_open }}<small> / {{ s.capa_total }}</small></span><span class="sub">{% if s.capa_overdue %}{{ s.capa_overdue }} past due date{% else %}none past due date{% endif %}</span></a>
+</section>
+
+{# ---- visualizations ---- #}
+<div class="grid grid-2">
+  <section class="card chart-card" aria-labelledby="c1">
+    <div class="card-head"><div><h2 id="c1">Test execution</h2><p>Results across all {{ s.tests_all }} test cases</p></div><a class="link-more" href="{{ url_for('tests') }}">Open tests{{ icon('chevron-right', 'icon-sm') }}</a></div>
+    <div class="chart-wrap">
+      <div class="chart-box"><canvas data-chart="tests" data-type="doughnut" data-center="{{ s.test_rate }}%" data-center-label="pass rate" data-empty="No test cases yet" role="img" aria-label="Test execution results: {% for k, v in s.tests_by_result.items() %}{{ v }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}"></canvas></div>
+      <ul class="legend" data-legend="tests"></ul>
+    </div>
+  </section>
+  <section class="card chart-card" aria-labelledby="c2">
+    <div class="card-head"><div><h2 id="c2">Defects by severity</h2><p>Coloured = not closed · grey = closed</p></div><a class="link-more" href="{{ url_for('defects') }}">Open defects{{ icon('chevron-right', 'icon-sm') }}</a></div>
+    <div class="chart-wrap wide">
+      <div class="chart-box"><canvas data-chart="severity" data-type="severity" data-empty="No defects recorded" role="img" aria-label="Defects by severity: {% for k, v in s.defects_by_severity.items() %}{{ k }} {{ v.open }} not closed, {{ v.closed }} closed{{ '; ' if not loop.last }}{% endfor %}"></canvas></div>
+      <ul class="legend cols" data-legend="severity"></ul>
+    </div>
+  </section>
+  <section class="card chart-card" aria-labelledby="c3">
+    <div class="card-head"><div><h2 id="c3">Quality review progress</h2><p>{{ s.reviews_done }} of {{ s.reviews_total }} reviews have a decision</p></div><a class="link-more" href="{{ url_for('reviews') }}">Open reviews{{ icon('chevron-right', 'icon-sm') }}</a></div>
+    <div class="chart-wrap wide">
+      <div class="chart-box"><canvas data-chart="reviews" data-type="hbar" data-empty="No reviews yet" role="img" aria-label="Review decisions: {% for k, v in s.reviews_by_decision.items() %}{{ v }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}"></canvas></div>
+      <ul class="legend cols" data-legend="reviews"></ul>
+    </div>
+  </section>
+  <section class="card chart-card" aria-labelledby="c4">
+    <div class="card-head"><div><h2 id="c4">CAPA status</h2><p>{{ s.capa_open }} open · {{ s.capa_closed }} verified and closed</p></div><a class="link-more" href="{{ url_for('capa') }}">Open CAPA{{ icon('chevron-right', 'icon-sm') }}</a></div>
+    <div class="chart-wrap">
+      <div class="chart-box"><canvas data-chart="capa" data-type="doughnut" data-center="{{ s.capa_open }}" data-center-label="open" data-empty="No CAPA records yet" role="img" aria-label="CAPA status: {% for k, v in s.capa_by_status.items() %}{{ v }} {{ k }}{{ ', ' if not loop.last }}{% endfor %}"></canvas></div>
+      <ul class="legend" data-legend="capa"></ul>
+    </div>
+  </section>
+</div>
+
+{# ---- recent records ---- #}
+<div class="grid grid-main">
+  <section class="card table-card" aria-labelledby="rd">
+    <div class="card-head"><div><h2 id="rd">Recently reported defects</h2><p>Latest five in the register</p></div><a class="link-more" href="{{ url_for('defects') }}">View all{{ icon('chevron-right', 'icon-sm') }}</a></div>
+    {% if recent %}
+    <div class="table-scroll"><table class="data-table" style="min-width:560px">
+      <thead><tr><th scope="col">Defect</th><th scope="col">Severity</th><th scope="col">Status</th><th scope="col">Reported</th></tr></thead>
+      <tbody>
+      {% for d in recent %}
+      <tr data-tone="{{ tone(d.severity) if d.status != 'Closed' and d.severity == 'Critical' else 'neutral' }}">
+        <td class="cell-title"><a class="row-link" href="{{ url_for('defects') }}#rec-def-{{ d.id }}">{{ d.title }}</a><span class="cell-sub">{{ rid('DEF', d.id) }} · {{ d.category }}</span></td>
+        <td data-label="Severity">{{ severity(d.severity) }}</td>
+        <td data-label="Status">{{ status(d.status) }}</td>
+        <td data-label="Reported" class="when">{{ d.created_at[:10] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    {% call empty_state('bug', 'No defects recorded', 'Defects reported during testing and review will appear here.') %}<a class="btn btn-primary" href="{{ url_for('defects', new=1) }}">{{ icon('plus') }}Record defect</a>{% endcall %}
+    {% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="ra">
+    <div class="card-head"><div><h2 id="ra">Recent activity</h2><p>From the audit trail</p></div><a class="link-more" href="{{ url_for('metrics') }}#audit">Audit trail{{ icon('chevron-right', 'icon-sm') }}</a></div>
+    {% if activity %}
+    <ul class="timeline">
+      {% for a in activity %}
+      <li><span class="what"><b>{{ a.entity_type }}</b> {{ a.action|lower }}</span>{% if a.details %}<span class="detail">{{ a.details }}</span>{% endif %}<time>{{ a.created_at }}</time></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    {% call empty_state('history', 'No activity yet', 'Creating or updating a record adds an entry here.') %}{% endcall %}
+    {% endif %}
+  </section>
+</div>
+
+<script type="application/json" id="chart-data">{{ charts|tojson }}</script>
+{% endblock %}
+{% block vendor %}<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/charts.js') }}" defer></script>{% endblock %}

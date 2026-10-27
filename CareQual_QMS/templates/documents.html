@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, page_head, rid, empty_state, field, segmented, drawer, modal, callout, toolbar, filter_empty %}
+{% block content %}
+{% call page_head('Document control', 'Register controlled plans, procedures and evidence, and track each one’s owner, version and approval state.') %}
+  <a class="btn" href="{{ url_for('export_dataset', dataset='documents') }}">{{ icon('download') }}Export CSV</a>
+  <button type="button" class="btn btn-primary" data-dialog-open="new-doc">{{ icon('plus') }}Register document</button>
+{% endcall %}
+
+{% call callout('info', 'info') %}<strong>This is a metadata register.</strong> CareQual records each document’s title, type, version, owner, status and a text reference to where it is kept. It does not upload, store, open or download files, and it does not keep a version history. Changing a status updates the record in place.{% endcall %}
+
+<div class="strip" aria-label="Document summary">
+  <div><div class="k">{{ icon('files') }}Registered</div><div class="v">{{ records|length }}</div></div>
+  <a class="strip-cell" href="{{ url_for('documents', status='Approved') }}"><div class="k">{{ icon('badge-check') }}Approved</div><div class="v">{{ records|selectattr('status', 'equalto', 'Approved')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('documents', status='In Review') }}"><div class="k">{{ icon('eye') }}In review</div><div class="v">{{ records|selectattr('status', 'equalto', 'In Review')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('documents', status='Draft') }}"><div class="k">{{ icon('pencil') }}Draft</div><div class="v">{{ records|selectattr('status', 'equalto', 'Draft')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('documents', status='Obsolete') }}"><div class="k">{{ icon('ban') }}Obsolete</div><div class="v">{{ records|selectattr('status', 'equalto', 'Obsolete')|list|length }}</div></a>
+</div>
+
+<section class="card table-card" aria-label="Controlled document register">
+  {% if records %}
+  {{ toolbar('#docs-table', 'Search titles, owners, references…', [('status', 'Status', choices.doc_status), ('type', 'Type', choices.doc_type)]) }}
+  <div class="table-scroll">
+    <table class="data-table" id="docs-table">
+      <thead><tr><th scope="col">ID</th><th scope="col">Document</th><th scope="col">Type</th><th scope="col">Version</th><th scope="col">Owner</th><th scope="col">Status</th><th scope="col">Last updated</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr data-row data-open="rec-doc-{{ r.id }}" data-status="{{ r.status }}" data-type="{{ r.doc_type }}" data-search="{{ (rid('DOC', r.id) ~ ' ' ~ r.title ~ ' ' ~ r.doc_type ~ ' ' ~ r.version ~ ' ' ~ r.owner ~ ' ' ~ r.location ~ ' ' ~ r.status)|lower }}">
+        <td class="col-id" data-label="ID">{{ rid('DOC', r.id) }}</td>
+        <td class="cell-title"><button type="button" class="row-link" data-dialog-open="rec-doc-{{ r.id }}">{{ r.title }}</button><span class="cell-sub">{{ r.location or 'No repository reference' }}</span></td>
+        <td data-label="Type">{{ r.doc_type }}</td>
+        <td data-label="Version" class="tnum"><span class="tag" data-tone="info">v{{ r.version }}</span></td>
+        <td data-label="Owner">{{ r.owner }}</td>
+        <td data-label="Status">{{ status(r.status) }}</td>
+        <td data-label="Updated" class="when">{{ r.updated_at }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ filter_empty() }}
+  {% else %}
+  {% call empty_state('files', 'No controlled documents', 'Register plans, procedures and evidence here so their version, owner and approval state are always known.') %}
+    <button type="button" class="btn btn-primary" data-dialog-open="new-doc">{{ icon('plus') }}Register the first document</button>
+  {% endcall %}
+  {% endif %}
+</section>
+
+{% call modal('new-doc', 'Register a document', 'Records metadata only. The file itself stays wherever you keep it.', autoopen=request.args.get('new')) %}
+<form method="post" action="{{ url_for('documents') }}">
+  {{ csrf_field() }}
+  <div class="form-grid">
+    {{ field('ndoc', 'Document title', 'title', required=True, full=True, maxlength=160, autofocus=True, placeholder='e.g. Defect handling procedure') }}
+    {{ field('ndoc', 'Document type', 'doc_type', required=True, options=choices.doc_type) }}
+    {{ field('ndoc', 'Version', 'version', required=True, placeholder='1.0', maxlength=20) }}
+    {{ field('ndoc', 'Owner', 'owner', required=True, placeholder='e.g. QA Lead', maxlength=80) }}
+    {{ field('ndoc', 'Repository reference', 'location', placeholder='e.g. QMS/Procedures/Defect-Handling', maxlength=240, hint='Text only: a folder path, link or document number.') }}
+  </div>
+  <div class="form-actions"><button type="button" class="btn" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">{{ icon('plus') }}Register document</button></div>
+</form>
+{% endcall %}
+
+{% for r in records %}
+{% set kick %}{{ rid('DOC', r.id) }}<span>·</span>{{ r.doc_type }}<span class="tag" data-tone="info">v{{ r.version }}</span>{{ status(r.status) }}{% endset %}
+{% call drawer('rec-doc-' ~ r.id, kick, r.title) %}
+  <dl class="kv">
+    <div><dt>Owner</dt><dd>{{ r.owner }}</dd></div>
+    <div><dt>Version</dt><dd>v{{ r.version }}</dd></div>
+    <div><dt>Approval status</dt><dd>{{ status(r.status) }}</dd></div>
+    <div><dt>Last updated</dt><dd>{{ r.updated_at }}</dd></div>
+    <div class="full"><dt>Repository reference (text only)</dt><dd>{{ r.location or 'Not specified' }}</dd></div>
+  </dl>
+  <p class="hint">CareQual does not hold the file or earlier versions of it. To record a new version, register it as a new document and mark this one Obsolete.</p>
+  <div class="section">
+    <h4>{{ icon('badge-check') }}Update approval status</h4>
+    <form method="post" action="{{ url_for('document_status', rid=r.id) }}" data-confirm="Mark this document Obsolete? It stays in the register but should no longer be used." data-confirm-label="Mark obsolete" data-confirm-when="status=Obsolete">
+      {{ csrf_field() }}
+      {{ segmented('ds' ~ r.id, 'Status', 'status', choices.doc_status, r.status) }}
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save status</button></div>
+    </form>
+  </div>
+{% endcall %}
+{% endfor %}
+{% endblock %}

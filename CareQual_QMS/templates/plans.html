@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, page_head, rid, empty_state, field, segmented, drawer, modal, stepper, toolbar, filter_empty %}
+{% block content %}
+{% call page_head('Quality plans', 'Define quality objectives, owners and target dates, and track each plan through approval.') %}
+  <a class="btn" href="{{ url_for('export_dataset', dataset='plans') }}">{{ icon('download') }}Export CSV</a>
+  <button type="button" class="btn btn-primary" data-dialog-open="new-plan">{{ icon('plus') }}New quality plan</button>
+{% endcall %}
+
+{% set n_appr = records|selectattr('status', 'equalto', 'Approved')|list|length %}
+{% set n_pend = records|selectattr('status', 'equalto', 'Pending Approval')|list|length %}
+{% set n_draft = records|selectattr('status', 'equalto', 'Draft')|list|length %}
+<div class="strip" aria-label="Plan summary">
+  <div><div class="k">{{ icon('clipboard-list') }}Total plans</div><div class="v">{{ records|length }}</div></div>
+  <a class="strip-cell" href="{{ url_for('plans', status='Approved') }}"><div class="k">{{ icon('badge-check') }}Approved</div><div class="v">{{ n_appr }}</div></a>
+  <a class="strip-cell" href="{{ url_for('plans', status='Pending Approval') }}"><div class="k">{{ icon('hourglass') }}Pending approval</div><div class="v">{{ n_pend }}</div></a>
+  <a class="strip-cell" href="{{ url_for('plans', status='Draft') }}"><div class="k">{{ icon('pencil') }}Draft</div><div class="v">{{ n_draft }}</div></a>
+  <div><div class="k">{{ icon('target') }}Approval rate</div><div class="v">{{ ((n_appr / records|length * 100)|round|int) if records else 0 }}<small>%</small></div></div>
+</div>
+
+<section class="card table-card" aria-label="Quality plan register">
+  {% if records %}
+  {{ toolbar('#plans-table', 'Search plans, owners, objectives…', [('status', 'Status', choices.plan_status)]) }}
+  <div class="table-scroll">
+    <table class="data-table" id="plans-table">
+      <thead><tr><th scope="col">ID</th><th scope="col">Plan and quality objective</th><th scope="col">Owner</th><th scope="col">Target date</th><th scope="col">Approval status</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr data-row data-open="rec-plan-{{ r.id }}" data-status="{{ r.status }}" data-search="{{ (rid('PLAN', r.id) ~ ' ' ~ r.title ~ ' ' ~ r.objective ~ ' ' ~ r.owner ~ ' ' ~ r.status)|lower }}">
+        <td class="col-id" data-label="ID">{{ rid('PLAN', r.id) }}</td>
+        <td class="cell-title"><button type="button" class="row-link" data-dialog-open="rec-plan-{{ r.id }}">{{ r.title }}</button><span class="cell-sub">{{ r.objective }}</span></td>
+        <td data-label="Owner">{{ r.owner }}</td>
+        <td data-label="Target date" class="when">{{ r.target_date or 'Not set' }}{% if r.past_target %}<br><span class="flag" data-tone="danger">{{ icon('clock', 'icon-sm') }}Past target date</span>{% endif %}</td>
+        <td data-label="Status">{{ status(r.status) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ filter_empty() }}
+  {% else %}
+  {% call empty_state('clipboard-list', 'No quality plans yet', 'A quality plan states the objective, owner and target date for a quality activity. New plans start as Draft.') %}
+    <button type="button" class="btn btn-primary" data-dialog-open="new-plan">{{ icon('plus') }}Create the first plan</button>
+  {% endcall %}
+  {% endif %}
+  <div class="card-foot">Approval records the plan’s status only. The approver’s identity and the approval date are not stored in this prototype.</div>
+</section>
+
+{% call modal('new-plan', 'New quality plan', 'New plans start as Draft and move to approval from the plan panel.', autoopen=request.args.get('new')) %}
+<form method="post" action="{{ url_for('plans') }}">
+  {{ csrf_field() }}
+  <div class="form-grid">
+    {{ field('np', 'Plan title', 'title', required=True, placeholder='e.g. Data integrity plan', full=True, maxlength=160, autofocus=True) }}
+    {{ field('np', 'Quality objective', 'objective', required=True, rows=3, placeholder='What quality outcome will this plan achieve?', full=True, maxlength=1000) }}
+    {{ field('np', 'Owner', 'owner', required=True, placeholder='e.g. QA Lead', maxlength=80) }}
+    {{ field('np', 'Target date', 'target_date', type='date') }}
+  </div>
+  <div class="form-actions"><button type="button" class="btn" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">{{ icon('plus') }}Create plan</button></div>
+</form>
+{% endcall %}
+
+{% for r in records %}
+{% set kick %}{{ rid('PLAN', r.id) }}{{ status(r.status) }}{% endset %}
+{% call drawer('rec-plan-' ~ r.id, kick, r.title) %}
+  {{ stepper(choices.plan_status, r.status) }}
+  <dl class="kv">
+    <div><dt>Owner</dt><dd>{{ r.owner }}</dd></div>
+    <div><dt>Target date</dt><dd>{{ r.target_date or 'Not set' }}{% if r.past_target %} <span class="flag" data-tone="danger">{{ icon('clock', 'icon-sm') }}Past target</span>{% endif %}</dd></div>
+    <div><dt>Created</dt><dd>{{ r.created_at }}</dd></div>
+    <div><dt>Status</dt><dd>{{ status(r.status) }}</dd></div>
+  </dl>
+  <div class="prose-box"><b>Quality objective</b>{{ r.objective }}</div>
+
+  <div class="section">
+    <h4>{{ icon('badge-check') }}Update approval status</h4>
+    <form method="post" action="{{ url_for('plan_status', rid=r.id) }}" data-confirm="Retire this quality plan? It stays in the register but is no longer an active plan." data-confirm-label="Retire plan" data-confirm-when="status=Retired">
+      {{ csrf_field() }}
+      {{ segmented('pl' ~ r.id, 'Status', 'status', choices.plan_status, r.status) }}
+      <p class="hint" style="margin-top:var(--s-3)">Draft → Pending Approval → Approved. Retire a plan when it is superseded.</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save status</button></div>
+    </form>
+  </div>
+{% endcall %}
+{% endfor %}
+{% endblock %}

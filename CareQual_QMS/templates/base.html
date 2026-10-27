@@ -1,0 +1,135 @@
+{% from "_macros.html" import icon %}
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>{{ page_title }} · CareQual QMS</title>
+  <script src="{{ url_for('static', filename='js/theme-init.js') }}"></script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='10' fill='%234b6dff'/%3E%3Cpath d='M18 8l8 3v6.5c0 5-3.4 8.6-8 10.5-4.6-1.9-8-5.5-8-10.5V11z' fill='none' stroke='white' stroke-width='1.9' stroke-linejoin='round'/%3E%3Cpath d='M18 14v7M14.5 17.5h7' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+{% include "_icons.svg" %}
+<a class="skip-link" href="#main">Skip to main content</a>
+
+<div class="app">
+  <header class="topbar">
+    <button type="button" class="icon-btn" id="nav-toggle" aria-controls="rail" aria-expanded="false" aria-label="Toggle navigation">{{ icon('menu', 'icon-lg') }}</button>
+    <a class="brand" href="{{ url_for('overview') }}" aria-label="CareQual QMS home">
+      <svg class="brand-mark" viewBox="0 0 36 36" aria-hidden="true">
+        <defs><linearGradient id="cqg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#8b6cff"/></linearGradient></defs>
+        <rect width="36" height="36" rx="10" fill="url(#cqg)"/>
+        <path d="M18 8l8 3v6.5c0 5-3.4 8.6-8 10.5-4.6-1.9-8-5.5-8-10.5V11z" fill="none" stroke="#fff" stroke-width="1.9" stroke-linejoin="round"/>
+        <path d="M18 14v7M14.5 17.5h7" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-text"><span class="brand-name">CareQual QMS</span><span class="brand-sub">Software quality management</span></span>
+    </a>
+
+    <form class="search" action="{{ url_for('search') }}" method="get" role="search">
+      {{ icon('search') }}
+      <input type="search" name="q" id="global-search" placeholder="Search plans, tests, defects, CAPA…" aria-label="Search all QMS records" minlength="2" maxlength="80" autocomplete="off" value="{{ q if request.endpoint == 'search' else '' }}">
+      <kbd aria-hidden="true">/</kbd>
+    </form>
+
+    <div class="topbar-actions">
+      <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch to light theme" title="Switch theme">
+        <span data-theme-icon="dark">{{ icon('sun') }}</span><span data-theme-icon="light" hidden>{{ icon('moon') }}</span>
+      </button>
+
+      <div class="pop-anchor">
+        <button type="button" class="icon-btn" data-popover="pop-attention" aria-expanded="false" aria-haspopup="true" aria-label="Items needing attention{% if attention_total %} ({{ attention_total }}){% endif %}">
+          {{ icon('bell') }}{% if attention_total %}<span class="dot-count">{{ attention_total if attention_total < 100 else '99+' }}</span>{% endif %}
+        </button>
+        <div class="popover" id="pop-attention" hidden>
+          <div class="pop-head"><h2>Needs attention</h2><p>Worked out from current records. These are not sent notifications.</p></div>
+          <div class="pop-list">
+            {% for item in attention %}
+            <a class="pop-item" href="{{ item.url }}" data-tone="{{ item.tone }}"><b>{{ item.count }}</b><span>{{ item.text }}</span></a>
+            {% else %}
+            <p class="pop-empty">Nothing needs attention right now.</p>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="pop-anchor">
+        <button type="button" class="profile-btn" data-popover="pop-profile" aria-expanded="false" aria-haspopup="true" aria-label="Prototype session menu">
+          <span class="avatar" aria-hidden="true">QU</span>
+          <span class="who"><span>QMS User</span><small>Prototype</small></span>
+          {{ icon('chevron-down', 'icon-sm') }}
+        </button>
+        <div class="popover pop-menu" id="pop-profile" hidden>
+          <div class="pop-head"><h2>Prototype session</h2></div>
+          <p class="pop-note">Sign-in and role-based access are not implemented in this prototype. Every change is recorded in the audit trail as “QMS User”.</p>
+          <a href="{{ url_for('export') }}">{{ icon('download') }}Export defects (CSV)</a>
+          <a href="{{ url_for('metrics') }}">{{ icon('chart-no-axes-combined') }}Open metrics &amp; reports</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  {% set groups = [('Workspace', ['overview']), ('Plan and verify', ['plans', 'reviews', 'tests', 'defects', 'documents']), ('Improve and release', ['metrics', 'capa', 'release'])] %}
+  <aside class="rail" id="rail" aria-label="Primary">
+    <nav aria-label="Modules">
+      {% for group_name, endpoints in groups %}
+      <div class="nav-group">
+        <div class="nav-title">{{ group_name }}</div>
+        {% for ep, label, ic in modules if ep in endpoints %}
+        {% set n = nav_counts.get(ep) %}
+        <a class="nav-link" href="{{ url_for(ep) }}" data-tip="{{ label }}"{% if request.endpoint == ep %} aria-current="page"{% endif %}>
+          {{ icon(ic) }}<span class="nav-label">{{ label }}</span>
+          {% if n %}<span class="nav-count"{% if ep == 'tests' %} data-tone="danger"{% endif %} title="{{ n }} {{ {'defects': 'defects not closed', 'tests': 'failed or blocked tests', 'reviews': 'reviews pending', 'capa': 'CAPA actions open'}.get(ep, '') }}">{{ n }}</span>{% if ep == 'tests' %}<span class="nav-dot"></span>{% endif %}{% endif %}
+        </a>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </nav>
+    <div class="rail-foot">
+      <div class="rail-note">{{ icon('triangle-alert') }}<span>Academic prototype. Don’t store real patient data.</span></div>
+      <button type="button" class="rail-toggle" id="rail-collapse" aria-pressed="false">{{ icon('panel-left-close') }}<span>Collapse menu</span></button>
+    </div>
+  </aside>
+  <div class="scrim" data-nav-close></div>
+
+  <div class="main">
+    <main class="content" id="main" tabindex="-1">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="footer">
+      <span>CareQual QMS · Hospital Management Software quality management prototype · {{ current_year }}</span>
+      <span>Records are stored locally in SQLite</span>
+    </footer>
+  </div>
+</div>
+
+<div class="toasts" aria-live="polite" aria-atomic="false">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  {% set t = {'success': 'success', 'error': 'danger', 'warning': 'warning'}.get(category, 'info') %}
+  <div class="toast" data-tone="{{ t }}" role="{{ 'alert' if t in ('danger', 'warning') else 'status' }}" data-autoclose="{{ 'true' if t == 'success' else 'false' }}">
+    {{ icon({'success': 'circle-check', 'danger': 'circle-alert', 'warning': 'triangle-alert', 'info': 'info'}[t]) }}
+    <span class="msg">{{ message }}</span>
+    <button type="button" class="x" data-toast-close aria-label="Dismiss message">{{ icon('x', 'icon-sm') }}</button>
+  </div>
+  {% endfor %}
+  {% endwith %}
+</div>
+
+<dialog class="confirm" id="confirm-dialog" aria-labelledby="confirm-title">
+  <div class="dialog-body">
+    <span class="gi">{{ icon('triangle-alert', 'icon-lg') }}</span>
+    <div><h2 id="confirm-title">Please confirm</h2><p id="confirm-text"></p></div>
+  </div>
+  <div class="form-actions">
+    <button type="button" class="btn" data-confirm-cancel>Cancel</button>
+    <button type="button" class="btn btn-primary" data-confirm-ok>Confirm</button>
+  </div>
+</dialog>
+
+{% block vendor %}{% endblock %}
+<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

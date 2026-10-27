@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, severity, page_head, rid, empty_state, field, drawer, modal, stepper, toolbar, filter_empty %}
+{% block content %}
+{% call page_head('CAPA & improvement', 'Corrective and preventive actions: find the root cause, fix it, stop it recurring, and prove the action worked.') %}
+  <a class="btn" href="{{ url_for('export_dataset', dataset='capa') }}">{{ icon('download') }}Export CSV</a>
+  <button type="button" class="btn btn-primary" data-dialog-open="new-capa">{{ icon('plus') }}New CAPA</button>
+{% endcall %}
+
+{% set n_over = records|selectattr('overdue')|list|length %}
+{% set n_open = records|rejectattr('status', 'equalto', 'Closed')|list|length %}
+<div class="strip" aria-label="CAPA summary">
+  <div><div class="k">{{ icon('refresh-cw') }}Total actions</div><div class="v">{{ records|length }}</div></div>
+  <a class="strip-cell" href="{{ url_for('capa', due='overdue') }}"{% if n_over %} data-alert="true"{% endif %}><div class="k">{{ icon('clock') }}Past due date</div><div class="v">{{ n_over }}</div></a>
+  <a class="strip-cell" href="{{ url_for('capa', status='Open') }}"><div class="k">{{ icon('circle-dot') }}Open</div><div class="v">{{ records|selectattr('status', 'equalto', 'Open')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('capa', status='In Progress') }}"><div class="k">{{ icon('loader-circle') }}In progress</div><div class="v">{{ records|selectattr('status', 'equalto', 'In Progress')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('capa', status='Pending Verification') }}"><div class="k">{{ icon('eye') }}Awaiting verification</div><div class="v">{{ records|selectattr('status', 'equalto', 'Pending Verification')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('capa', status='Closed') }}"><div class="k">{{ icon('circle-check') }}Verified and closed</div><div class="v">{{ records|selectattr('status', 'equalto', 'Closed')|list|length }}</div></a>
+</div>
+
+<section class="card table-card" aria-label="CAPA register">
+  {% if records %}
+  {{ toolbar('#capa-table', 'Search actions, root causes, owners…', [('status', 'Status', choices.capa_status), ('due', 'Due', [('overdue', 'Past due date'), ('ok', 'Not past due'), ('none', 'No due date')])]) }}
+  <div class="table-scroll">
+    <table class="data-table" id="capa-table">
+      <thead><tr><th scope="col">ID</th><th scope="col">Action and root cause</th><th scope="col">Linked defect</th><th scope="col">Owner</th><th scope="col">Due date</th><th scope="col">Status</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr data-row data-open="rec-capa-{{ r.id }}" data-status="{{ r.status }}" data-due="{{ 'overdue' if r.overdue else ('ok' if r.due_date else 'none') }}"
+          data-tone="{{ 'danger' if r.overdue else 'neutral' }}" data-emph="{{ 'true' if r.overdue else 'false' }}"
+          data-search="{{ (rid('CAPA', r.id) ~ ' ' ~ r.title ~ ' ' ~ r.linked_defect ~ ' ' ~ r.root_cause ~ ' ' ~ r.corrective_action ~ ' ' ~ r.preventive_action ~ ' ' ~ r.owner ~ ' ' ~ r.status)|lower }}">
+        <td class="col-id" data-label="ID">{{ rid('CAPA', r.id) }}</td>
+        <td class="cell-title"><button type="button" class="row-link" data-dialog-open="rec-capa-{{ r.id }}">{{ r.title }}</button><span class="cell-sub">Root cause: {{ r.root_cause }}</span></td>
+        <td data-label="Defect">{% if r.defect %}<a href="{{ url_for('defects') }}#rec-def-{{ r.defect.id }}">{{ rid('DEF', r.defect.id) }}</a>{% else %}{{ r.linked_defect or '—' }}{% endif %}</td>
+        <td data-label="Owner">{{ r.owner }}</td>
+        <td data-label="Due" class="when">{{ r.due_date or 'Not set' }}{% if r.overdue %}<br><span class="flag" data-tone="danger">{{ icon('clock', 'icon-sm') }}Overdue</span>{% endif %}</td>
+        <td data-label="Status">{{ status(r.status) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ filter_empty() }}
+  {% else %}
+  {% call empty_state('refresh-cw', 'No CAPA records yet', 'Start a corrective and preventive action when a defect shows a deeper cause that should be fixed and prevented from recurring.') %}
+    <button type="button" class="btn btn-primary" data-dialog-open="new-capa">{{ icon('plus') }}Create the first CAPA</button>
+  {% endcall %}
+  {% endif %}
+  <div class="card-foot">Only actions with a due date can be flagged overdue. An action closes only after its effectiveness is verified.</div>
+</section>
+
+{% call modal('new-capa', 'New CAPA record', 'Starts as Open. Close it later by recording effectiveness verification.', autoopen=(prefill or request.args.get('new'))) %}
+{% if prefill %}<div class="callout" data-tone="info" role="note">{{ icon('info') }}<div>Pre-filled from {{ prefill.linked_defect }}. Add the corrective and preventive actions before saving.</div></div>{% endif %}
+<form method="post" action="{{ url_for('capa') }}">
+  {{ csrf_field() }}
+  <div class="form-grid">
+    {{ field('nc', 'Action title', 'title', required=True, full=True, maxlength=160, value=prefill.title if prefill else '', autofocus=True) }}
+    {{ field('nc', 'Linked defect reference', 'linked_defect', placeholder='e.g. DEF-001', value=prefill.linked_defect if prefill else '', maxlength=40, hint='Matches a defect when written as DEF-<number>.') }}
+    {{ field('nc', 'Due date', 'due_date', type='date') }}
+    {{ field('nc', 'Root cause', 'root_cause', required=True, rows=2, full=True, maxlength=1000, value=prefill.root_cause if prefill else '', placeholder='Why did the problem happen?') }}
+    {{ field('nc', 'Corrective action', 'corrective_action', required=True, rows=2, full=True, maxlength=1000, placeholder='What will fix the problem now?') }}
+    {{ field('nc', 'Preventive action', 'preventive_action', required=True, rows=2, full=True, maxlength=1000, placeholder='What will stop it happening again?') }}
+    {{ field('nc', 'Owner', 'owner', required=True, maxlength=80, placeholder='Responsible person or role') }}
+  </div>
+  <div class="form-actions"><button type="button" class="btn" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">{{ icon('plus') }}Create CAPA</button></div>
+</form>
+{% endcall %}
+
+{% for r in records %}
+{% set kick %}{{ rid('CAPA', r.id) }}{% if r.linked_defect %}<span>·</span>{{ r.linked_defect }}{% endif %}{{ status(r.status) }}{% if r.overdue %}<span class="badge" data-tone="danger">{{ icon('clock') }}Overdue</span>{% endif %}{% endset %}
+{% call drawer('rec-capa-' ~ r.id, kick, r.title) %}
+  {{ stepper(choices.capa_status, r.status) }}
+  <dl class="kv">
+    <div><dt>Owner</dt><dd>{{ r.owner }}</dd></div>
+    <div><dt>Due date</dt><dd>{{ r.due_date or 'Not set' }}{% if r.overdue %} <span class="flag" data-tone="danger">{{ icon('clock', 'icon-sm') }}Overdue</span>{% endif %}</dd></div>
+    <div class="full"><dt>Linked defect</dt><dd>{% if r.defect %}<a href="{{ url_for('defects') }}#rec-def-{{ r.defect.id }}">{{ rid('DEF', r.defect.id) }} · {{ r.defect.title }}</a> {{ severity(r.defect.severity) }} {{ status(r.defect.status) }}{% else %}{{ r.linked_defect or 'None' }}{% if r.linked_defect %} <span class="hint">(no matching defect found)</span>{% endif %}{% endif %}</dd></div>
+    <div><dt>Created</dt><dd>{{ r.created_at }}</dd></div>
+  </dl>
+  <div class="prose-box"><b>Root cause</b>{{ r.root_cause }}</div>
+  <div class="prose-box"><b>Corrective action</b>{{ r.corrective_action }}</div>
+  <div class="prose-box"><b>Preventive action</b>{{ r.preventive_action }}</div>
+
+  {% if r.status == 'Closed' %}
+  <div class="section">
+    <div class="verified">{{ icon('badge-check', 'icon-lg') }}<span>Effectiveness verified by <strong>{{ r.verified_by or 'unknown' }}</strong>{% if r.verified_at %} on {{ r.verified_at }}{% endif %}</span></div>
+    {% if r.verification_notes %}<div class="prose-box"><b>Verification notes</b>{{ r.verification_notes }}</div>{% endif %}
+  </div>
+  {% else %}
+  <div class="section">
+    <h4>{{ icon('pencil') }}Update progress</h4>
+    <form method="post" action="{{ url_for('capa_update', rid=r.id) }}">
+      {{ csrf_field() }}
+      <div class="form-grid">
+        {{ field('cu' ~ r.id, 'Status', 'status', options=['Open', 'In Progress', 'Pending Verification'], value=r.status, required=True, full=True) }}
+        {{ field('cu' ~ r.id, 'Progress notes', 'verification_notes', rows=2, value=r.verification_notes, placeholder='What has been done so far?', full=True, maxlength=1000) }}
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save progress</button></div>
+    </form>
+  </div>
+  <div class="section">
+    <h4>{{ icon('badge-check') }}Verify effectiveness and close</h4>
+    <form method="post" action="{{ url_for('capa_verify', rid=r.id) }}" data-confirm="Close this CAPA? Confirm that its effectiveness has been verified." data-confirm-label="Verify and close">
+      {{ csrf_field() }}
+      <div class="form-grid">
+        {{ field('cv' ~ r.id, 'Effectiveness verification notes', 'verification_notes', required=True, rows=3, full=True, maxlength=1000, placeholder='Evidence that the action worked and the risk of recurrence is lower') }}
+        {{ field('cv' ~ r.id, 'Verified by', 'verified_by', required=True, full=True, maxlength=80, placeholder='Independent reviewer') }}
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-success">{{ icon('badge-check') }}Verify and close</button></div>
+    </form>
+  </div>
+  {% endif %}
+{% endcall %}
+{% endfor %}
+{% endblock %}

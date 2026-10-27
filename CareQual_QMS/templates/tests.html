@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, page_head, rid, empty_state, field, segmented, drawer, modal, toolbar, filter_empty %}
+{% block content %}
+{% call page_head('Test management', 'Maintain traceable test cases, record execution results and spot failed or blocked tests quickly.') %}
+  <a class="btn" href="{{ url_for('export_dataset', dataset='tests') }}">{{ icon('download') }}Export CSV</a>
+  <button type="button" class="btn btn-primary" data-dialog-open="new-test">{{ icon('plus') }}New test case</button>
+{% endcall %}
+
+{% set n_pass = records|selectattr('result', 'equalto', 'Passed')|list|length %}
+{% set n_fail = records|selectattr('result', 'equalto', 'Failed')|list|length %}
+{% set n_block = records|selectattr('result', 'equalto', 'Blocked')|list|length %}
+{% set n_nr = records|selectattr('result', 'equalto', 'Not Run')|list|length %}
+{% set n_exec = records|length - n_nr %}
+<div class="strip" aria-label="Test summary">
+  <div><div class="k">{{ icon('flask-conical') }}Total</div><div class="v">{{ records|length }}</div></div>
+  <a class="strip-cell" href="{{ url_for('tests', result='Passed') }}"><div class="k">{{ icon('circle-check') }}Passed</div><div class="v">{{ n_pass }}</div></a>
+  <a class="strip-cell" href="{{ url_for('tests', result='Failed') }}"{% if n_fail %} data-alert="true"{% endif %}><div class="k">{{ icon('circle-x') }}Failed</div><div class="v">{{ n_fail }}</div></a>
+  <a class="strip-cell" href="{{ url_for('tests', result='Blocked') }}"><div class="k">{{ icon('ban') }}Blocked</div><div class="v">{{ n_block }}</div></a>
+  <a class="strip-cell" href="{{ url_for('tests', result='Not Run') }}"><div class="k">{{ icon('circle-dashed') }}Not run</div><div class="v">{{ n_nr }}</div></a>
+  <div><div class="k">{{ icon('trending-up') }}Pass rate</div><div class="v">{{ ((n_pass / n_exec * 100)|round|int) if n_exec else 0 }}<small>% of {{ n_exec }} run</small></div></div>
+</div>
+
+<section class="card table-card" aria-label="Test case register">
+  {% if records %}
+  {{ toolbar('#tests-table', 'Search tests, requirements, testers…', [('result', 'Result', choices.test_result), ('type', 'Type', choices.test_type)]) }}
+  <div class="table-scroll">
+    <table class="data-table" id="tests-table">
+      <thead><tr><th scope="col">ID</th><th scope="col">Test case</th><th scope="col">Requirement</th><th scope="col">Type</th><th scope="col">Tester</th><th scope="col">Result</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr data-row data-open="rec-tc-{{ r.id }}" data-result="{{ r.result }}" data-type="{{ r.test_type }}"
+          data-tone="{{ tone(r.result) if r.result in ('Failed', 'Blocked') else 'neutral' }}" data-emph="{{ 'true' if r.result in ('Failed', 'Blocked') else 'false' }}"
+          data-search="{{ (rid('TC', r.id) ~ ' ' ~ r.title ~ ' ' ~ r.requirement_ref ~ ' ' ~ r.test_type ~ ' ' ~ r.tester ~ ' ' ~ r.expected_result ~ ' ' ~ r.actual_result ~ ' ' ~ r.result)|lower }}">
+        <td class="col-id" data-label="ID">{{ rid('TC', r.id) }}</td>
+        <td class="cell-title"><button type="button" class="row-link" data-dialog-open="rec-tc-{{ r.id }}">{{ r.title }}</button><span class="cell-sub">Expected: {{ r.expected_result }}</span></td>
+        <td data-label="Requirement">{{ r.requirement_ref or '—' }}</td>
+        <td data-label="Type">{{ r.test_type }}</td>
+        <td data-label="Tester">{{ r.tester }}</td>
+        <td data-label="Result">{{ status(r.result) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ filter_empty() }}
+  {% else %}
+  {% call empty_state('flask-conical', 'No test cases yet', 'Create a test case, link it to a requirement and record what happens when it is run.') %}
+    <button type="button" class="btn btn-primary" data-dialog-open="new-test">{{ icon('plus') }}Create the first test case</button>
+  {% endcall %}
+  {% endif %}
+  <div class="card-foot">Pass rate = passed ÷ executed (tests marked Not Run are not counted). Open a row to record a result.</div>
+</section>
+
+{% call modal('new-test', 'New test case', 'New test cases start as Not Run.', autoopen=request.args.get('new')) %}
+<form method="post" action="{{ url_for('tests') }}">
+  {{ csrf_field() }}
+  <div class="form-grid">
+    {{ field('nt', 'Test title', 'title', required=True, placeholder='e.g. Reject mismatched patient ID', full=True, maxlength=160, autofocus=True) }}
+    {{ field('nt', 'Linked requirement ID', 'requirement_ref', placeholder='e.g. REQ-1', maxlength=60) }}
+    {{ field('nt', 'Test type', 'test_type', required=True, options=choices.test_type) }}
+    {{ field('nt', 'Expected result', 'expected_result', required=True, rows=2, placeholder='What should happen when the test passes?', full=True, maxlength=600) }}
+    {{ field('nt', 'Tester', 'tester', required=True, placeholder='Person or role running the test', maxlength=80) }}
+  </div>
+  <div class="form-actions"><button type="button" class="btn" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">{{ icon('plus') }}Add test case</button></div>
+</form>
+{% endcall %}
+
+{% for r in records %}
+{% set kick %}{{ rid('TC', r.id) }}<span>·</span>{{ r.test_type }}{{ status(r.result) }}{% endset %}
+{% call drawer('rec-tc-' ~ r.id, kick, r.title) %}
+  {% if r.result == 'Failed' %}
+  <div class="callout" data-tone="danger" role="note">{{ icon('circle-x') }}<div><strong>This test failed.</strong> Log a defect if the failure shows a real problem.
+    <div style="margin-top:var(--s-2)"><a class="btn btn-sm btn-danger" href="{{ url_for('defects', from_test=r.id) }}">{{ icon('bug') }}Log defect from this test</a></div></div></div>
+  {% elif r.result == 'Blocked' %}
+  <div class="callout" data-tone="orange" role="note">{{ icon('ban') }}<div><strong>This test is blocked.</strong> Record what is preventing execution in the evidence field below.</div></div>
+  {% endif %}
+  <dl class="kv">
+    <div><dt>Requirement</dt><dd>{{ r.requirement_ref or 'Not linked' }}</dd></div>
+    <div><dt>Test type</dt><dd>{{ r.test_type }}</dd></div>
+    <div><dt>Tester</dt><dd>{{ r.tester }}</dd></div>
+    <div><dt>Created</dt><dd>{{ r.created_at }}</dd></div>
+  </dl>
+  <div class="prose-box"><b>Expected result</b>{{ r.expected_result }}</div>
+  <div class="prose-box"><b>Actual result / evidence</b>{{ r.actual_result or 'Nothing recorded yet.' }}</div>
+
+  <div class="section">
+    <h4>{{ icon('flask-conical') }}Record execution result</h4>
+    <form method="post" action="{{ url_for('test_result', rid=r.id) }}">
+      {{ csrf_field() }}
+      <div class="form-grid">
+        {{ segmented('tr' ~ r.id, 'Result', 'result', choices.test_result, r.result) }}
+        {{ field('tr' ~ r.id, 'Actual result / evidence', 'actual_result', rows=3, value=r.actual_result, placeholder='What happened when the test was run?', full=True, maxlength=1000) }}
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save result</button></div>
+    </form>
+  </div>
+{% endcall %}
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, empty_state %}
+{% block content %}
+<div class="card" style="max-width:640px;margin:var(--s-8) auto">
+  {% call empty_state('triangle-alert', page_title, message) %}
+    <p class="muted" style="font-size:var(--fs-sm)">Error {{ code }}</p>
+    <div style="display:flex;gap:var(--s-2);justify-content:center;flex-wrap:wrap;margin-top:var(--s-2)">
+      <a class="btn btn-primary" href="{{ url_for('overview') }}">{{ icon('layout-dashboard') }}Back to overview</a>
+      <button type="button" class="btn" data-history-back>Go back</button>
+    </div>
+  {% endcall %}
+</div>
+{% endblock %}

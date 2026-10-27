@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, page_head, empty_state, callout %}
+{% macro rate(label, value, note, tone_name='info') -%}
+<div><div class="k">{{ label }}</div><div class="v">{{ value }}<small>%</small></div><div class="meter" data-tone="{{ tone_name }}"><i style="width:{{ value }}%"></i></div><div class="hint" style="margin-top:6px">{{ note }}</div></div>
+{%- endmacro %}
+{% macro chart_card(cid, title, sub, key, ctype, center='', center_label='', empty='No data in this range', wide=False) -%}
+<section class="card chart-card" aria-labelledby="{{ cid }}">
+  <div class="card-head"><div><h2 id="{{ cid }}">{{ title }}</h2><p>{{ sub }}</p></div></div>
+  <div class="chart-wrap{% if wide %} wide{% endif %}">
+    <div class="chart-box"><canvas data-chart="{{ key }}" data-type="{{ ctype }}"{% if center %} data-center="{{ center }}" data-center-label="{{ center_label }}"{% endif %} data-empty="{{ empty }}" role="img" aria-label="{{ title }}"></canvas></div>
+    <ul class="legend{% if wide %} cols{% endif %}" data-legend="{{ key }}"></ul>
+  </div>
+</section>
+{%- endmacro %}
+{% block content %}
+{% call page_head('Metrics & reports', 'Quality indicators calculated directly from the database records. Nothing on this page is hard-coded.') %}
+  <div class="pop-anchor">
+    <button type="button" class="btn" data-popover="pop-export" aria-expanded="false" aria-haspopup="true">{{ icon('download') }}Export CSV{{ icon('chevron-down', 'icon-sm') }}</button>
+    <div class="popover pop-menu" id="pop-export" hidden>
+      <div class="pop-head"><h2>Download a register</h2><p>Full registers, not limited by the date filter.</p></div>
+      <a href="{{ url_for('export') }}">{{ icon('bug') }}Defects</a>
+      <a href="{{ url_for('export_dataset', dataset='tests') }}">{{ icon('flask-conical') }}Test cases</a>
+      <a href="{{ url_for('export_dataset', dataset='reviews') }}">{{ icon('file-check') }}Reviews</a>
+      <a href="{{ url_for('export_dataset', dataset='plans') }}">{{ icon('clipboard-list') }}Quality plans</a>
+      <a href="{{ url_for('export_dataset', dataset='documents') }}">{{ icon('files') }}Documents</a>
+      <a href="{{ url_for('export_dataset', dataset='capa') }}">{{ icon('refresh-cw') }}CAPA</a>
+      <a href="{{ url_for('export_dataset', dataset='audit') }}">{{ icon('history') }}Audit trail</a>
+    </div>
+  </div>
+{% endcall %}
+
+<form class="card" method="get" action="{{ url_for('metrics') }}" data-validate style="margin-bottom:var(--s-5)">
+  <div class="card-body" style="display:flex;flex-wrap:wrap;gap:var(--s-4);align-items:flex-end">
+    <div class="field" style="width:180px"><label for="f-from">Created from</label><input type="date" id="f-from" name="from" value="{{ s.range.from }}"></div>
+    <div class="field" style="width:180px"><label for="f-to">Created to</label><input type="date" id="f-to" name="to" value="{{ s.range.to }}"></div>
+    <div style="display:flex;gap:var(--s-2)"><button type="submit" class="btn btn-primary">{{ icon('filter') }}Apply range</button>{% if filtered %}<a class="btn" href="{{ url_for('metrics') }}">{{ icon('rotate-ccw') }}Reset</a>{% endif %}</div>
+    <p class="hint" style="flex:1;min-width:220px">Limits every figure to records created in the range (documents use last-updated date). Leave blank for all records.</p>
+  </div>
+</form>
+{% if filtered %}{% call callout('info', 'filter') %}Showing records created {% if s.range.from %}from <strong>{{ s.range.from }}</strong>{% endif %} {% if s.range.to %}to <strong>{{ s.range.to }}</strong>{% endif %}. Figures can differ from the Overview, which always covers every record.{% endcall %}{% endif %}
+
+<div class="strip" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))" aria-label="Headline rates">
+  {{ rate('Test pass rate', s.test_rate, s.tests_passed ~ ' passed of ' ~ s.tests_total ~ ' executed', 'success') }}
+  {{ rate('Review completion', s.review_rate, s.reviews_done ~ ' of ' ~ s.reviews_total ~ ' reviews decided') }}
+  {{ rate('Plan approval', s.plans_rate, s.plans_approved ~ ' of ' ~ s.plans_total ~ ' plans approved', 'success') }}
+  {{ rate('Defect closure', s.closure_rate, s.defects_closed ~ ' of ' ~ s.defects_total ~ ' verified and closed', 'success') }}
+  {{ rate('CAPA closure', s.capa_rate, s.capa_closed ~ ' of ' ~ s.capa_total ~ ' actions verified', 'success') }}
+  {{ rate('Document approval', s.docs_rate, s.docs_approved ~ ' of ' ~ s.docs_total ~ ' documents approved', 'success') }}
+</div>
+
+<div class="grid grid-2">
+  {{ chart_card('m1', 'Defects by severity', 'Coloured = not closed · grey = closed', 'severity', 'severity', empty='No defects in this range', wide=True) }}
+  {{ chart_card('m2', 'Test pass rate', s.tests_all ~ ' test cases in range', 'tests', 'doughnut', s.test_rate ~ '%', 'pass rate', 'No test cases in this range') }}
+  {{ chart_card('m3', 'Review completion', s.reviews_done ~ ' of ' ~ s.reviews_total ~ ' decided', 'reviews', 'hbar', empty='No reviews in this range', wide=True) }}
+  {{ chart_card('m4', 'Quality plan approval', s.plans_approved ~ ' of ' ~ s.plans_total ~ ' approved', 'plans', 'hbar', empty='No plans in this range', wide=True) }}
+  {{ chart_card('m5', 'CAPA status', s.capa_open ~ ' open · ' ~ s.capa_closed ~ ' closed', 'capa', 'doughnut', s.capa_open, 'open', 'No CAPA records in this range') }}
+  {{ chart_card('m6', 'Document approval', s.docs_approved ~ ' of ' ~ s.docs_total ~ ' approved', 'docs', 'doughnut', s.docs_rate ~ '%', 'approved', 'No documents in this range') }}
+</div>
+
+<div class="grid grid-2">
+  <section class="card table-card" aria-labelledby="t1">
+    <div class="card-head"><div><h2 id="t1">Defects by status and category</h2><p>{{ s.defects_total }} defects in range</p></div></div>
+    {% if s.defects_total %}
+    <div class="table-scroll"><table class="data-table" style="min-width:0">
+      <thead><tr><th scope="col">Status</th><th scope="col">Count</th></tr></thead>
+      <tbody>{% for k, v in s.defects_by_status.items() %}<tr><td data-label="Status">{{ status(k) }}</td><td data-label="Count" class="tnum">{{ v }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="table-scroll"><table class="data-table" style="min-width:0;border-top:1px solid var(--line)">
+      <thead><tr><th scope="col">Category</th><th scope="col">Count</th></tr></thead>
+      <tbody>{% for k, v in s.defects_by_category.items() %}<tr><td data-label="Category">{{ k }}</td><td data-label="Count" class="tnum">{{ v }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}{% call empty_state('bug', 'No defects in this range', 'Change the date range or record a defect.') %}{% endcall %}{% endif %}
+  </section>
+
+  <section class="card table-card" aria-labelledby="t2">
+    <div class="card-head"><div><h2 id="t2">Test results by type</h2><p>Pass rate counts executed tests only</p></div></div>
+    {% if s.tests_by_type %}
+    <div class="table-scroll"><table class="data-table" style="min-width:0">
+      <thead><tr><th scope="col">Type</th><th scope="col">Total</th><th scope="col">Passed</th><th scope="col">Failed</th><th scope="col">Blocked</th><th scope="col">Not run</th><th scope="col">Pass rate</th></tr></thead>
+      <tbody>{% for t in s.tests_by_type %}{% set ex = t.total - t['Not Run'] %}
+        <tr><td data-label="Type">{{ t.type }}</td><td data-label="Total" class="tnum">{{ t.total }}</td><td data-label="Passed" class="tnum">{{ t.Passed }}</td><td data-label="Failed" class="tnum">{{ t.Failed }}</td><td data-label="Blocked" class="tnum">{{ t.Blocked }}</td><td data-label="Not run" class="tnum">{{ t['Not Run'] }}</td><td data-label="Pass rate" class="tnum">{{ ((t.Passed / ex * 100)|round|int ~ '%') if ex else '—' }}</td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+    {% else %}{% call empty_state('flask-conical', 'No test cases in this range', 'Change the date range or add a test case.') %}{% endcall %}{% endif %}
+
+    <div class="card-head" style="border-top:1px solid var(--line-soft)"><div><h2>Documents by type</h2></div></div>
+    {% if s.docs_by_type %}
+    <div class="table-scroll"><table class="data-table" style="min-width:0">
+      <thead><tr><th scope="col">Type</th><th scope="col">Registered</th><th scope="col">Approved</th><th scope="col">Rate</th></tr></thead>
+      <tbody>{% for t in s.docs_by_type %}<tr><td data-label="Type">{{ t.type }}</td><td data-label="Registered" class="tnum">{{ t.total }}</td><td data-label="Approved" class="tnum">{{ t.approved }}</td><td data-label="Rate" class="tnum">{{ (t.approved / t.total * 100)|round|int }}%</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="pop-empty">No documents in this range.</p>{% endif %}
+  </section>
+</div>
+
+<section class="card" aria-labelledby="how" style="margin-bottom:var(--s-5)">
+  <div class="card-head"><div><h2 id="how">How these numbers are calculated</h2><p>The same definitions are used on the Overview and Release pages.</p></div></div>
+  <ul class="list-rows">
+    <li><span class="grow"><strong>Test pass rate</strong> · Passed ÷ (Passed + Failed + Blocked). Tests that are Not Run are excluded.</span></li>
+    <li><span class="grow"><strong>Review completion</strong> · reviews with any decision other than Pending ÷ all reviews.</span></li>
+    <li><span class="grow"><strong>Open defects</strong> · every defect whose status is not Closed. This includes Rejected defects until they are verified and closed.</span></li>
+    <li><span class="grow"><strong>Open CAPA</strong> · every action not yet Closed. <strong>Past due</strong> needs a due date earlier than today.</span></li>
+    <li><span class="grow"><strong>Requirements approved</strong> · {{ s.req_approved }} of {{ s.req_total }} ({{ s.req_rate }}%). Critical requirements feed a release gate.</span></li>
+  </ul>
+</section>
+
+<section class="card table-card" id="audit" aria-labelledby="au">
+  <div class="card-head"><div><h2 id="au">Audit trail</h2><p>Latest 12 recorded actions · full trail via Export CSV</p></div></div>
+  {% if audit %}
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th scope="col">When</th><th scope="col">Record</th><th scope="col">Action</th><th scope="col">Details</th><th scope="col">By</th></tr></thead>
+    <tbody>{% for a in audit %}<tr><td data-label="When" class="when">{{ a.created_at }}</td><td data-label="Record">{{ a.entity_type }} #{{ a.entity_id }}</td><td data-label="Action">{{ a.action }}</td><td data-label="Details" class="cell-title"><span class="cell-sub" style="margin:0">{{ a.details }}</span></td><td data-label="By">{{ a.actor }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}{% call empty_state('history', 'No audit entries yet', 'Every create and update action is recorded here.') %}{% endcall %}{% endif %}
+</section>
+
+<script type="application/json" id="chart-data">{{ charts|tojson }}</script>
+{% endblock %}
+{% block vendor %}<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/charts.js') }}" defer></script>{% endblock %}

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, severity, page_head, rid, empty_state, field, segmented, drawer, callout %}
+{% block content %}
+{% call page_head('Release readiness', 'A release can only be marked ready when every mandatory gate has passed with evidence.') %}
+  {% if ready %}<span class="badge badge-solid" data-tone="success">{{ icon('circle-check') }}Ready for authorized review</span>
+  {% else %}<span class="badge badge-solid" data-tone="{{ 'danger' if (rel.blockers|selectattr('status', 'equalto', 'Fail')|list) else 'warning' }}">{{ icon('shield-alert') }}Not ready for release</span>{% endif %}
+{% endcall %}
+
+{% if ready %}
+{% call callout('success', 'shield-check') %}<strong>All {{ checks|selectattr('mandatory')|list|length }} mandatory gates have passed.</strong> The release can go to the authorized reviewer. This page summarizes evidence only; it does not approve a release.{% endcall %}
+{% else %}
+{% call callout('danger' if (rel.blockers|selectattr('status', 'equalto', 'Fail')|list) else 'warning', 'shield-alert') %}<strong>{{ rel.blockers|length }} mandatory {{ 'gate is' if rel.blockers|length == 1 else 'gates are' }} not passed:</strong>
+  {% for b in rel.blockers %}{{ b.check_name }} ({{ b.status }}){{ '; ' if not loop.last else '.' }}{% endfor %}
+  {% if not checks %}No gates are defined, so the release cannot be marked ready.{% endif %}{% endcall %}
+{% endif %}
+
+<div class="grid grid-side">
+  <div>
+    <section class="card" aria-labelledby="cl">
+      <div class="card-head"><div><h2 id="cl">Release checklist</h2><p>{{ rel.passed }} of {{ checks|length }} gates passed</p></div></div>
+      {% if checks %}
+      <ul class="gate-list">
+        {% for c in checks %}
+        <li data-tone="{{ tone(c.status) }}">
+          <span class="gi">{{ icon({'Pass': 'circle-check', 'Fail': 'circle-x', 'Pending': 'clock', 'Not Applicable': 'circle-dashed'}.get(c.status, 'clock'), 'icon-lg') }}</span>
+          <div>
+            <h3>{{ c.check_name }}</h3>
+            <div class="meta">
+              {{ status(c.status) }}
+              <span class="tag" data-tone="{{ 'violet' if c.mandatory else 'neutral' }}">{{ 'Mandatory' if c.mandatory else 'Optional' }}</span>
+              {% if c.auto == 'auto' %}<span class="tag" data-tone="info">{{ icon('activity', 'icon-sm') }}Calculated automatically</span>{% elif c.auto == 'partial' %}<span class="tag" data-tone="info">{{ icon('activity', 'icon-sm') }}Fails automatically on test failures</span>{% endif %}
+            </div>
+            <p class="evid">{{ c.evidence or 'No evidence recorded yet.' }}</p>
+            <div class="meta">{% if c.checked_by %}<span>{{ icon('user', 'icon-sm') }} Checked by {{ c.checked_by }}</span>{% endif %}{% if c.updated_at %}<span>{{ icon('clock', 'icon-sm') }} {{ c.updated_at }}</span>{% endif %}</div>
+          </div>
+          <div>
+            {% if c.auto == 'auto' %}
+              {% if c.check_name == 'No open critical defects' %}<a class="btn btn-sm" href="{{ url_for('defects', severity='Critical', status='__open') }}">View defects</a>
+              {% else %}<a class="btn btn-sm" href="#requirements">View requirements</a>{% endif %}
+            {% else %}
+              <button type="button" class="btn btn-sm" data-dialog-open="rec-gate-{{ c.id }}">{{ icon('pencil', 'icon-sm') }}Update evidence</button>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      {% call empty_state('list-checks', 'No release gates defined', 'Without gates a release can never be marked ready.') %}{% endcall %}
+      {% endif %}
+      <div class="card-foot">A mandatory gate must be <strong>Pass</strong>. Pending, Fail and Not Applicable all keep the release not ready.</div>
+    </section>
+
+    <section class="card" id="requirements" aria-labelledby="rq" style="margin-top:var(--s-5)">
+      <div class="card-head"><div><h2 id="rq">Requirements behind the approval gate</h2><p>{{ rel.critical_req_unapproved }} critical requirement(s) not yet approved</p></div></div>
+      {% if requirements %}
+      <ul class="list-rows">
+        {% for q in requirements %}
+        <li>
+          <div class="grow"><strong>{{ q.title }}</strong> <span class="tag" data-tone="{{ tone(q.risk_level) }}">{{ q.risk_level }} risk</span>
+            <span class="cell-sub" style="display:block;margin-top:2px">{{ q.acceptance_criteria }}</span></div>
+          <form method="post" action="{{ url_for('requirement_status', rid=q.id) }}" style="display:flex;gap:var(--s-2);align-items:center">
+            {{ csrf_field() }}
+            <label class="sr-only" for="rq-{{ q.id }}">Status for {{ q.title }}</label>
+            <select id="rq-{{ q.id }}" name="status" style="height:34px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--surface-2);color:var(--text);padding:0 var(--s-3)">
+              {% for o in choices.requirement_status %}<option value="{{ o }}"{% if o == q.status %} selected{% endif %}>{{ o }}</option>{% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm">Save</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}{% call empty_state('clipboard-list', 'No requirements recorded', 'Requirements are read from the database.') %}{% endcall %}{% endif %}
+      <div class="card-foot">Saving records the requirement’s status only, with an audit-trail entry. Approver identity is not stored in this prototype.</div>
+    </section>
+  </div>
+
+  <aside class="card" aria-labelledby="ev">
+    <div class="card-head"><div><h2 id="ev">Live evidence</h2><p>Indicators that inform the gates</p></div></div>
+    <ul class="evidence">
+      <li><a class="ev-k" href="{{ url_for('defects', severity='Critical', status='__open') }}">Critical defects not closed</a><span class="ev-v">{{ rel.critical_open }}</span>{{ status('Pass' if rel.critical_open == 0 else 'Fail') }}</li>
+      <li><a class="ev-k" href="{{ url_for('tests', result='Failed') }}">Failed or blocked critical-type tests</a><span class="ev-v">{{ rel.critical_tests_failed }}</span>{{ status('Pass' if rel.critical_tests_failed == 0 else 'Fail') }}</li>
+      <li><a class="ev-k" href="#requirements">Critical requirements not approved</a><span class="ev-v">{{ rel.critical_req_unapproved }}</span>{{ status('Pass' if rel.critical_req_unapproved == 0 else 'Fail') }}</li>
+      <li><a class="ev-k" href="{{ url_for('tests') }}">Test pass rate</a><span class="ev-v">{{ s.test_rate }}%</span><span class="hint">{{ s.tests_passed }}/{{ s.tests_total }}</span></li>
+      <li><a class="ev-k" href="{{ url_for('reviews') }}">Quality review completion</a><span class="ev-v">{{ s.review_rate }}%</span><span class="hint">{{ s.reviews_done }}/{{ s.reviews_total }}</span></li>
+      <li><a class="ev-k" href="{{ url_for('capa') }}">CAPA actions still open</a><span class="ev-v">{{ s.capa_open }}</span><span class="hint">of {{ s.capa_total }}</span></li>
+      <li><a class="ev-k" href="{{ url_for('documents') }}">Documents approved</a><span class="ev-v">{{ s.docs_approved }}</span><span class="hint">of {{ s.docs_total }}</span></li>
+    </ul>
+    <div class="card-foot">Test, review, CAPA and document indicators are context. Only the checklist gates decide readiness.</div>
+  </aside>
+</div>
+
+{% for c in checks if not c.auto == 'auto' %}
+{% set kick %}Release gate{{ status(c.status) }}<span class="tag" data-tone="{{ 'violet' if c.mandatory else 'neutral' }}">{{ 'Mandatory' if c.mandatory else 'Optional' }}</span>{% endset %}
+{% call drawer('rec-gate-' ~ c.id, kick, c.check_name) %}
+  {% if c.auto == 'partial' %}<div class="callout" data-tone="info" role="note">{{ icon('activity') }}<div>This gate fails automatically while failed or blocked Security, Integration or System tests exist ({{ rel.critical_tests_failed }} now). Pass it only after you confirm the remaining critical tests have passed.</div></div>{% endif %}
+  <form method="post" action="{{ url_for('release_update', rid=c.id) }}">
+    {{ csrf_field() }}
+    <div class="form-grid">
+      {{ segmented('rg' ~ c.id, 'Gate status', 'status', choices.release_status, c.status if c.status in choices.release_status else 'Pending') }}
+      {{ field('rg' ~ c.id, 'Evidence', 'evidence', rows=3, value=c.stored_evidence, placeholder='Where is the proof? e.g. test report reference', full=True, maxlength=1000, hint='Pass requires evidence and a named reviewer.') }}
+      {{ field('rg' ~ c.id, 'Checked by', 'checked_by', value=c.checked_by, placeholder='Reviewer name', full=True, maxlength=80) }}
+    </div>
+    <p class="hint" style="margin-top:var(--s-3)">Not Applicable does not satisfy a mandatory gate.</p>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Save gate</button></div>
+  </form>
+{% endcall %}
+{% endfor %}
+{% endblock %}

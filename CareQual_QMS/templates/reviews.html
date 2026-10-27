@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, page_head, rid, empty_state, field, segmented, drawer, modal, toolbar, filter_empty %}
+{% block content %}
+{% call page_head('Reviews', 'Record independent reviews of requirements, design, code, test plans and quality documents, and capture each decision.') %}
+  <a class="btn" href="{{ url_for('export_dataset', dataset='reviews') }}">{{ icon('download') }}Export CSV</a>
+  <button type="button" class="btn btn-primary" data-dialog-open="new-review">{{ icon('plus') }}Schedule review</button>
+{% endcall %}
+
+{% set n_done = records|rejectattr('decision', 'equalto', 'Pending')|list|length %}
+<div class="strip" aria-label="Review summary">
+  <div><div class="k">{{ icon('file-check') }}Total reviews</div><div class="v">{{ records|length }}</div></div>
+  <a class="strip-cell" href="{{ url_for('reviews', decision='Pending') }}"><div class="k">{{ icon('hourglass') }}Awaiting decision</div><div class="v">{{ records|length - n_done }}</div></a>
+  <a class="strip-cell" href="{{ url_for('reviews', decision='Approved') }}"><div class="k">{{ icon('circle-check') }}Approved</div><div class="v">{{ records|selectattr('decision', 'equalto', 'Approved')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('reviews', decision='Changes Required') }}"><div class="k">{{ icon('pencil') }}Changes required</div><div class="v">{{ records|selectattr('decision', 'equalto', 'Changes Required')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('reviews', decision='Rejected') }}"><div class="k">{{ icon('circle-x') }}Rejected</div><div class="v">{{ records|selectattr('decision', 'equalto', 'Rejected')|list|length }}</div></a>
+  <div><div class="k">{{ icon('target') }}Completion rate</div><div class="v">{{ ((n_done / records|length * 100)|round|int) if records else 0 }}<small>%</small></div></div>
+</div>
+
+<section class="card table-card" aria-label="Review register">
+  {% if records %}
+  {{ toolbar('#reviews-table', 'Search artifacts, reviewers, comments…', [('decision', 'Decision', choices.review_decision), ('type', 'Type', choices.review_type)]) }}
+  <div class="table-scroll">
+    <table class="data-table" id="reviews-table">
+      <thead><tr><th scope="col">ID</th><th scope="col">Artifact under review</th><th scope="col">Type</th><th scope="col">Reviewer</th><th scope="col">Decision</th><th scope="col">Decided on</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr data-row data-open="rec-rev-{{ r.id }}" data-decision="{{ r.decision }}" data-type="{{ r.item_type }}" data-search="{{ (rid('REV', r.id) ~ ' ' ~ r.item_ref ~ ' ' ~ r.item_type ~ ' ' ~ r.reviewer ~ ' ' ~ r.comments ~ ' ' ~ r.decision)|lower }}">
+        <td class="col-id" data-label="ID">{{ rid('REV', r.id) }}</td>
+        <td class="cell-title"><button type="button" class="row-link" data-dialog-open="rec-rev-{{ r.id }}">{{ r.item_ref }}</button>{% if r.comments %}<span class="cell-sub">{{ r.comments }}</span>{% endif %}</td>
+        <td data-label="Type">{{ r.item_type }}</td>
+        <td data-label="Reviewer">{{ r.reviewer }}</td>
+        <td data-label="Decision">{{ status(r.decision) }}</td>
+        <td data-label="Decided on" class="when">{{ r.review_date[:10] if r.review_date else 'Not yet' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ filter_empty() }}
+  {% else %}
+  {% call empty_state('file-check', 'No reviews scheduled', 'Schedule a review to have a requirement, design or document independently checked before it is approved.') %}
+    <button type="button" class="btn btn-primary" data-dialog-open="new-review">{{ icon('plus') }}Schedule the first review</button>
+  {% endcall %}
+  {% endif %}
+  <div class="card-foot">A review counts as complete once any decision other than Pending is recorded.</div>
+</section>
+
+{% call modal('new-review', 'Schedule a review', 'The review starts as Pending until the reviewer records a decision.', autoopen=request.args.get('new')) %}
+<form method="post" action="{{ url_for('reviews') }}">
+  {{ csrf_field() }}
+  <div class="form-grid">
+    {{ field('nr', 'Item type', 'item_type', required=True, options=choices.review_type) }}
+    {{ field('nr', 'Reviewer', 'reviewer', required=True, placeholder='Independent reviewer', maxlength=80) }}
+    {{ field('nr', 'Item reference', 'item_ref', required=True, placeholder='e.g. REQ-1 Patient identity association', full=True, maxlength=200, autofocus=True) }}
+  </div>
+  <div class="form-actions"><button type="button" class="btn" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">{{ icon('plus') }}Create review</button></div>
+</form>
+{% endcall %}
+
+{% for r in records %}
+{% set kick %}{{ rid('REV', r.id) }}<span>·</span>{{ r.item_type }}{{ status(r.decision) }}{% endset %}
+{% call drawer('rec-rev-' ~ r.id, kick, r.item_ref) %}
+  <dl class="kv">
+    <div><dt>Item type</dt><dd>{{ r.item_type }}</dd></div>
+    <div><dt>Reviewer</dt><dd>{{ r.reviewer }}</dd></div>
+    <div><dt>Decision</dt><dd>{{ status(r.decision) }}</dd></div>
+    <div><dt>Decision recorded</dt><dd>{{ r.review_date or 'Not yet decided' }}</dd></div>
+    <div><dt>Scheduled</dt><dd>{{ r.created_at }}</dd></div>
+  </dl>
+  {% if r.comments %}<div class="prose-box"><b>Reviewer comments</b>{{ r.comments }}</div>{% endif %}
+
+  <div class="section">
+    <h4>{{ icon('clipboard-check') }}Record decision</h4>
+    <form method="post" action="{{ url_for('review_decision', rid=r.id) }}">
+      {{ csrf_field() }}
+      <div class="form-grid">
+        {{ segmented('rv' ~ r.id, 'Decision', 'decision', choices.review_decision, r.decision) }}
+        {{ field('rv' ~ r.id, 'Comments or evidence', 'comments', rows=3, value=r.comments, placeholder='Why this decision was made, and any changes needed', full=True, maxlength=1000) }}
+      </div>
+      <p class="hint" style="margin-top:var(--s-3)">Saving stamps the decision with the current date and time and adds an audit-trail entry.</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save decision</button></div>
+    </form>
+  </div>
+{% endcall %}
+{% endfor %}
+{% endblock %}

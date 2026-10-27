@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, status, severity, priority, page_head, rid, empty_state, field, drawer, modal, stepper, toolbar, filter_empty %}
+{% block content %}
+{% call page_head('Defects', 'Log non-conformances, assess risk, assign ownership, and verify every fix independently before closure.') %}
+  <a class="btn" href="{{ url_for('export') }}">{{ icon('download') }}Export CSV</a>
+  <button type="button" class="btn btn-primary" data-dialog-open="new-defect">{{ icon('plus') }}Record defect</button>
+{% endcall %}
+
+{% set open_list = records|rejectattr('status', 'equalto', 'Closed')|list %}
+{% set n_crit = open_list|selectattr('severity', 'equalto', 'Critical')|list|length %}
+<div class="strip" aria-label="Defect summary">
+  <a class="strip-cell" href="{{ url_for('defects', status='__open') }}"><div class="k">{{ icon('bug') }}Not closed</div><div class="v">{{ open_list|length }}<small> of {{ records|length }}</small></div></a>
+  <a class="strip-cell" href="{{ url_for('defects', severity='Critical', status='__open') }}"{% if n_crit %} data-alert="true"{% endif %}><div class="k">{{ icon('siren') }}Critical, not closed</div><div class="v">{{ n_crit }}</div></a>
+  <a class="strip-cell" href="{{ url_for('defects', status='In Progress') }}"><div class="k">{{ icon('loader-circle') }}In progress</div><div class="v">{{ records|selectattr('status', 'equalto', 'In Progress')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('defects', status='Fixed - Pending Verification') }}"><div class="k">{{ icon('eye') }}Awaiting verification</div><div class="v">{{ records|selectattr('status', 'equalto', 'Fixed - Pending Verification')|list|length }}</div></a>
+  <a class="strip-cell" href="{{ url_for('defects', status='Closed') }}"><div class="k">{{ icon('circle-check') }}Verified and closed</div><div class="v">{{ records|selectattr('status', 'equalto', 'Closed')|list|length }}</div></a>
+</div>
+
+<section class="card table-card" aria-label="Defect register">
+  {% if records %}
+  {{ toolbar('#defects-table', 'Search defects, owners, descriptions…', [('status', 'Status', [('__open', 'Not closed')] + choices.defect_status), ('severity', 'Severity', choices.severity), ('category', 'Category', choices.defect_category)]) }}
+  <div class="table-scroll">
+    <table class="data-table" id="defects-table">
+      <thead><tr><th scope="col">ID</th><th scope="col">Defect</th><th scope="col">Severity</th><th scope="col">Priority</th><th scope="col">Status</th><th scope="col">Owner</th><th scope="col">Reported</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      {% set hot = r.severity == 'Critical' and r.status != 'Closed' %}
+      <tr data-row data-open="rec-def-{{ r.id }}" data-status="{{ r.status }}" data-severity="{{ r.severity }}" data-category="{{ r.category }}" data-unresolved="{{ '0' if r.status == 'Closed' else '1' }}"
+          data-tone="{{ 'danger' if hot else 'neutral' }}" data-emph="{{ 'true' if hot else 'false' }}"
+          data-search="{{ (rid('DEF', r.id) ~ ' ' ~ r.title ~ ' ' ~ r.description ~ ' ' ~ r.category ~ ' ' ~ r.owner ~ ' ' ~ r.severity ~ ' ' ~ r.status ~ ' ' ~ r.root_cause ~ ' ' ~ r.fix_notes)|lower }}">
+        <td class="col-id" data-label="ID">{{ rid('DEF', r.id) }}</td>
+        <td class="cell-title"><button type="button" class="row-link" data-dialog-open="rec-def-{{ r.id }}">{{ r.title }}</button><span class="cell-sub">{{ r.category }} · {{ r.description }}</span></td>
+        <td data-label="Severity">{{ severity(r.severity) }}</td>
+        <td data-label="Priority">{{ priority(r.priority) }}</td>
+        <td data-label="Status">{{ status(r.status) }}</td>
+        <td data-label="Owner">{{ r.owner }}</td>
+        <td data-label="Reported" class="when">{{ r.created_at[:10] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ filter_empty() }}
+  {% else %}
+  {% call empty_state('bug', 'No defects recorded', 'Record a defect when a test, review or inspection finds something that does not meet its requirement.') %}
+    <button type="button" class="btn btn-primary" data-dialog-open="new-defect">{{ icon('plus') }}Record the first defect</button>
+  {% endcall %}
+  {% endif %}
+  <div class="card-foot">“Not closed” means any status other than Closed. A defect only closes through independent verification with saved fix notes.</div>
+</section>
+
+{% call modal('new-defect', 'Record a defect', 'New defects start as Open.', autoopen=(prefill or request.args.get('new'))) %}
+{% if prefill %}<div class="callout" data-tone="info" role="note">{{ icon('info') }}<div>Pre-filled from a failed test. Review the details before saving. The test link is kept in the description text only.</div></div>{% endif %}
+<form method="post" action="{{ url_for('defects') }}">
+  {{ csrf_field() }}
+  <div class="form-grid">
+    {{ field('nd', 'Defect title', 'title', required=True, placeholder='Short, clear summary', full=True, maxlength=160, value=prefill.title if prefill else '', autofocus=True) }}
+    {{ field('nd', 'Description', 'description', required=True, rows=4, placeholder='Steps to reproduce, expected versus actual behaviour', full=True, maxlength=2000, value=prefill.description if prefill else '') }}
+    {{ field('nd', 'Category', 'category', required=True, options=choices.defect_category, value=prefill.category if prefill else '') }}
+    {{ field('nd', 'Owner', 'owner', required=True, placeholder='Responsible person or role', maxlength=80) }}
+    {{ field('nd', 'Severity', 'severity', required=True, options=choices.severity, value='Medium') }}
+    {{ field('nd', 'Priority', 'priority', required=True, options=choices.priority, value='Normal') }}
+  </div>
+  <div class="form-actions"><button type="button" class="btn" data-dialog-close>Cancel</button><button type="submit" class="btn btn-primary">{{ icon('plus') }}Record defect</button></div>
+</form>
+{% endcall %}
+
+{% for r in records %}
+{% set kick %}{{ rid('DEF', r.id) }}<span>·</span>{{ r.category }}{{ severity(r.severity) }}{{ status(r.status) }}{% endset %}
+{% call drawer('rec-def-' ~ r.id, kick, r.title) %}
+  {% if r.status == 'Rejected' %}
+  <div class="callout" data-tone="neutral" role="note">{{ icon('circle-x') }}<div><strong>Rejected.</strong> This report was not accepted as a defect. Note that “Not closed” counts and release checks still include it until it is verified and closed.</div></div>
+  {% else %}
+  {{ stepper(['Open', 'In Progress', 'Fixed - Pending Verification', 'Closed'], r.status) }}
+  {% endif %}
+
+  <dl class="kv">
+    <div><dt>Severity</dt><dd>{{ severity(r.severity) }}</dd></div>
+    <div><dt>Priority</dt><dd>{{ priority(r.priority) }}</dd></div>
+    <div><dt>Owner</dt><dd>{{ r.owner }}</dd></div>
+    <div><dt>Reported</dt><dd>{{ r.created_at }}</dd></div>
+  </dl>
+  <div class="prose-box"><b>Description</b>{{ r.description }}</div>
+  {% if r.root_cause %}<div class="prose-box"><b>Root cause</b>{{ r.root_cause }}</div>{% endif %}
+  {% if r.fix_notes %}<div class="prose-box"><b>Fix notes and evidence</b>{{ r.fix_notes }}</div>{% endif %}
+
+  {% if r.status == 'Closed' %}
+  <div class="section">
+    <div class="verified">{{ icon('badge-check', 'icon-lg') }}<span>Verified by <strong>{{ r.verified_by or 'unknown' }}</strong>{% if r.verified_at %} on {{ r.verified_at }}{% endif %}</span></div>
+    <form method="post" action="{{ url_for('defect_update', rid=r.id) }}" data-confirm="Reopen this defect? It will count as not closed again and block release checks if Critical." data-confirm-label="Reopen defect">
+      {{ csrf_field() }}
+      <input type="hidden" name="status" value="Open"><input type="hidden" name="root_cause" value="{{ r.root_cause }}"><input type="hidden" name="fix_notes" value="{{ r.fix_notes }}">
+      <button type="submit" class="btn btn-sm">{{ icon('rotate-ccw') }}Reopen defect</button>
+    </form>
+  </div>
+  {% else %}
+  <div class="section">
+    <h4>{{ icon('pencil') }}Update defect</h4>
+    <form method="post" action="{{ url_for('defect_update', rid=r.id) }}">
+      {{ csrf_field() }}
+      <div class="form-grid">
+        {{ field('du' ~ r.id, 'Status', 'status', options=['Open', 'In Progress', 'Fixed - Pending Verification', 'Rejected'], value=r.status, required=True) }}
+        {{ field('du' ~ r.id, 'Root cause', 'root_cause', value=r.root_cause, placeholder='Cause identified', maxlength=500) }}
+        {{ field('du' ~ r.id, 'Fix notes and evidence', 'fix_notes', rows=3, value=r.fix_notes, placeholder='Describe the correction and the test evidence', full=True, maxlength=1500, hint='Fix notes must be saved here before the defect can be verified and closed.') }}
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save update</button></div>
+    </form>
+  </div>
+  <div class="section">
+    <h4>{{ icon('badge-check') }}Verify and close</h4>
+    {% if r.fix_notes.strip() %}
+    <form method="post" action="{{ url_for('defect_verify', rid=r.id) }}" data-confirm="Confirm that the fix has been independently verified? The defect will be closed and stamped with the verifier and time." data-confirm-label="Verify and close">
+      {{ csrf_field() }}
+      <div class="form-grid">{{ field('dv' ~ r.id, 'Independent verifier', 'verified_by', required=True, placeholder='Name of the person who verified the fix', full=True, maxlength=80) }}</div>
+      <div class="form-actions"><button type="submit" class="btn btn-success">{{ icon('badge-check') }}Verify and close</button></div>
+    </form>
+    {% else %}
+    <div class="callout" data-tone="warning" role="note" style="margin-bottom:0">{{ icon('lock') }}<div>Verification is locked. Save fix notes above first, then name the person who verified the fix.</div></div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="section">
+    <h4>{{ icon('refresh-cw') }}Corrective and preventive action</h4>
+    {% set cl = linked_capa.get(r.id, []) %}
+    {% if cl %}<div class="chips" style="margin-bottom:var(--s-3)">{% for c in cl %}<a class="chip-link" href="{{ url_for('capa') }}#rec-capa-{{ c.id }}">{{ rid('CAPA', c.id) }} · {{ c.title }} · {{ c.status }}</a>{% endfor %}</div>
+    {% else %}<p class="hint" style="margin-bottom:var(--s-3)">No CAPA record references {{ rid('DEF', r.id) }} yet.</p>{% endif %}
+    <a class="btn btn-sm" href="{{ url_for('capa', from_defect=r.id) }}">{{ icon('plus') }}Start a CAPA from this defect</a>
+  </div>
+{% endcall %}
+{% endfor %}
+{% endblock %}
